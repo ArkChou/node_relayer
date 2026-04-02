@@ -375,9 +375,9 @@ npm install ioredis
 ### 环境变量
 
 ```env
-# BSC Testnet
-RPC_URL=https://rpc.ankr.com/bsc_testnet_chapel/...
-CHAIN_ID=97
+# Base Sepolia
+RPC_URL=https://base-sepolia.g.alchemy.com/v2/QT61ixLwVZ9CguVBHYkJp
+CHAIN_ID=84532
 
 # Relayer
 RELAYER_PRIVATE_KEY=0x...
@@ -508,3 +508,11 @@ spec:
 - 前端脚本: `/SafeScripts/qiandeploy.js`
 - 后端脚本: `/SafeScripts/houduan.js`
 - 测试: `/test/WholeProcess.test.js`
+
+
+## 快速测试
+- Post
+curl -X POST http://localhost:9527/initialAccount -H "Content-Type: application/json" -d '{"eoaAddress":"0x35cbdec2bde7bfd21a70013d6eda5b85c040dd78"}'
+
+- Get 
+curl "http://localhost:9527/getMyAddr?address=0x35cbdec2bde7bfd21a70013d6eda5b85c040dd78"
