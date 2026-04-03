@@ -12,9 +12,6 @@ async function executeSafeTransaction(params: {
     signature: string;     // 用户签名
     userAddress: string;   // 用户地址（签名者）
 }) {
-    const provider = new ethers.JsonRpcProvider(process.env.URL);
-    const relayerWallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
-
     // 初始化 Safe Protocol Kit
     const protocolKit = await (Safe as any).init({
         provider: process.env.URL!,
@@ -65,14 +62,17 @@ async function executeSafeTransaction(params: {
     }
 
     // Safe 签名格式调整
-    // 对于 eth_sign (EIP-191)，Safe 需要 v + 4
-    // 原因：Safe 使用不同的签名类型来区分 eth_sign 和 EIP-712
     const r = params.signature.slice(0, 66);  // 0x + 64 chars
     const s = '0x' + params.signature.slice(66, 130);  // 64 chars
     const v = parseInt(params.signature.slice(130, 132), 16);  // 2 chars
     
-    // Safe 对于 eth_sign，需要 v + 4 (27 -> 31, 28 -> 32)
-    const adjustedV = v + 4;
+    // Safe 对于 eth_sign (EIP-191) 签名需要 v+4
+    // 如果 v 已经是 31/32，说明前端已经调整过，不需要再加
+    let adjustedV = v;
+    if (v === 27 || v === 28) {
+        adjustedV = v + 4;  // 27 -> 31, 28 -> 32
+    }
+    
     const adjustedSignature = r + s.slice(2) + adjustedV.toString(16).padStart(2, '0');
     
     // 添加用户签名
