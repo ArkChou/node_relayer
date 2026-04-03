@@ -30,7 +30,7 @@ async function executeSafeTransaction(params: {
         throw new Error(`用户 ${params.userAddress} 不是 Safe 的 owner。Safe 的 owners: ${owners.join(', ')}`);
     }
 
-    // 重建 SafeTransaction 对象（使用前端传来的完整数据）
+    // 重建 SafeTransaction 对象（使用前端传来的完整数据，包括 gas 费参数）
     const safeTransaction = await protocolKit.createTransaction({
         transactions: [{
             to: params.safeTransaction.to,
@@ -39,6 +39,18 @@ async function executeSafeTransaction(params: {
             operation: params.safeTransaction.operation
         }]
     });
+
+    // 如果有 gas 费参数，必须设置（否则 safeTxHash 会不匹配）
+    if (params.safeTransaction.gasToken && params.safeTransaction.gasToken !== ethers.ZeroAddress) {
+        safeTransaction.data.safeTxGas = params.safeTransaction.safeTxGas;
+        safeTransaction.data.baseGas = params.safeTransaction.baseGas;
+        safeTransaction.data.gasPrice = params.safeTransaction.gasPrice;
+        safeTransaction.data.gasToken = params.safeTransaction.gasToken;
+        safeTransaction.data.refundReceiver = params.safeTransaction.refundReceiver;
+    }
+    
+    // 确保 nonce 一致
+    safeTransaction.data.nonce = params.safeTransaction.nonce;
 
     // 验证交易哈希
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);

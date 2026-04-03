@@ -1,7 +1,7 @@
 import express from "express";
 import safeModule from "./api/safe.js";
 import transferModule from "./api/sendTx.js";
-import configModule from "./api/config.js";
+import configModule from "./api/prepare.js";
 import cors from "cors";
 
 const app = express();
@@ -134,6 +134,42 @@ app.post("/api/prepare-transaction", async (req, res) => {
 
     console.log("\n📝 准备 Safe 交易...");
     const result = await configModule.prepareConfig({
+      safeAddress,
+      to,
+      value: value || "0",
+      data
+    });
+    
+    return res.json({
+      success: true,
+      ...result
+    });
+
+  } catch (err: any) {
+    console.error("❌ 准备交易失败:", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+/**
+ * 准备 Safe 交易并收取 ERC20 gas 费
+ * 返回 safeTxHash 供前端签名
+ */
+app.post("/api/prepare-transaction-with-fee", async (req, res) => {
+  try {
+    const { safeAddress, to, value, data } = req.body;
+    
+    if (!safeAddress || !to || !data) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required parameters: safeAddress, to, data"
+      });
+    }
+
+    const result = await configModule.prepareConfigWithFee({
       safeAddress,
       to,
       value: value || "0",
