@@ -1,7 +1,11 @@
 import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
-import { contractNetworks } from "../config/config.js";
+import { contractNetworks, feeConfig } from "../config/config.js";
+import { getProvider, getRelayerWallet } from "../utils/provider.js";
+import { acquireNonce } from "../utils/nonce.js";
+import { estimateGas, getFeeData, sendTransaction, getCode } from "../utils/rpcWrapper.js";
+import { saveTxToCache } from "../utils/txCache.js";
 
 dotenv.config();
 
@@ -26,10 +30,8 @@ async function getSafeAddress(userAddress: string) {
 
 // 判断 Safe 钱包是否已部署
 async function isSafeDeployed(safeAddress: string): Promise<boolean> {
-    const provider = new ethers.JsonRpcProvider(process.env.URL);
-    
-    // 检查该地址是否有合约代码
-    const code = await provider.getCode(safeAddress);
+    // 检查该地址是否有合约代码（使用 rpcWrapper，带超时和自动切换）
+    const code = await getCode(safeAddress);
     
     // 如果有代码（不是 "0x"），说明已部署
     return code !== "0x";
@@ -68,13 +70,14 @@ async function prepareDeploymentTx(eoaAddress: string) {
 async function deploySafeByRelayer(params: {
     userAddress: string;
 }) {
-    const provider = new ethers.JsonRpcProvider(process.env.URL);
-    const relayerWallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider);
+    const provider = getProvider();
+    const relayerWallet = getRelayerWallet();
 
     console.log("🚀 Relayer 开始部署 Safe...");
     console.log("Relayer 地址:", relayerWallet.address);
     console.log("用户地址:", params.userAddress);
 
+    console.log("📝 步骤 1: 初始化 Safe Protocol Kit...");
     // 初始化 Safe Protocol Kit（预测模式）
     const protocolKit = await (Safe as any).init({
         provider: process.env.URL!,
@@ -93,32 +96,52 @@ async function deploySafeByRelayer(params: {
         protocolKit.createSafeDeploymentTransaction()
     ]);
 
-    const [estimatedGas, feeData] = await Promise.all([
-        provider.estimateGas({
+    const [estimatedGasResult, feeDataResult] = await Promise.all([
+        estimateGas({
             to: deploymentTransaction.to,
             value: deploymentTransaction.value || "0",
             data: deploymentTransaction.data,
             from: relayerWallet.address
         }),
-        provider.getFeeData()
+        getFeeData()
     ])
-    // 加 50% buffer
-    const gasLimit = (estimatedGas * 150n) / 100n;
+    // 使用配置的 gas buffer
+    const gasLimit = (estimatedGasResult * BigInt(Math.floor(feeConfig.GAS_BUFFER * 100))) / 100n;
+    const maxFeePerGas = feeDataResult.maxFeePerGas 
+        ? (feeDataResult.maxFeePerGas * BigInt(Math.floor(feeConfig.GAS_BUFFER * 100))) / 100n
+        : undefined;
+    const maxPriorityFeePerGas = feeDataResult.maxPriorityFeePerGas 
+        ? (feeDataResult.maxPriorityFeePerGas * BigInt(Math.floor(feeConfig.GAS_BUFFER * 100))) / 100n
+        : undefined;
 
-    const baseGasPrice = feeData.gasPrice || 1000000000n; 
-    const gasPrice = (baseGasPrice * 120n) / 100n; 
+    // 从 Redis 获取 nonce（多实例安全）
+    const nonce = await acquireNonce(relayerWallet.address);
+    console.log("✅ 使用 nonce:", nonce);
 
-
-    // Relayer 发送交易（代付 gas）
-    const tx = await relayerWallet.sendTransaction({
+    console.log("📝 步骤 5: 发送部署交易...");
+    // Relayer 发送交易（代付 gas，使用 rpcWrapper 带超时和自动切换）
+    const tx = await sendTransaction(relayerWallet, {
         to: deploymentTransaction.to,
         value: deploymentTransaction.value || "0",
         data: deploymentTransaction.data,
         gasLimit: gasLimit,
-        gasPrice: gasPrice  // 使用调整后的 gas price
+        maxFeePerGas: maxFeePerGas,
+        maxPriorityFeePerGas: maxPriorityFeePerGas,
+        nonce: nonce
     });
 
-    console.log("交易已发送，txHash:", tx.hash);
+    console.log("✅ 交易已发送，txHash:", tx.hash);
+
+    // 交易发送成功后才保存到缓存（用于重发）
+    await saveTxToCache(relayerWallet.address, nonce, {
+        nonce: nonce,
+        to: deploymentTransaction.to,
+        value: deploymentTransaction.value || "0",
+        data: deploymentTransaction.data,
+        gasLimit: gasLimit.toString(),
+        maxFeePerGas: maxFeePerGas?.toString() || "0",
+        maxPriorityFeePerGas: maxPriorityFeePerGas?.toString() || "0"
+    });
 
     return {
         txHash: tx.hash,

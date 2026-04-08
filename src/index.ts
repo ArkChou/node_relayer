@@ -3,6 +3,24 @@ import safeModule from "./api/safe.js";
 import transferModule from "./api/sendTx.js";
 import configModule from "./api/prepare.js";
 import cors from "cors";
+import dotenv from "dotenv";
+import { initRpcHealthPool } from "./utils/rpcHealthPool.js";
+import { RPC_URLS } from "./utils/provider.js";
+import { startNonceMonitor } from "./utils/nonceMonitor.js";
+
+dotenv.config();
+
+// 初始化 RPC 健康池（使用 provider.ts 中配置的 URL）
+initRpcHealthPool(RPC_URLS);
+
+// 启动 Nonce 监控任务（6秒检查一次，自动重发卡住的交易）
+const RELAYER_ADDRESS = process.env.RELAYER_ADDRESS || "";
+if (RELAYER_ADDRESS) {
+  startNonceMonitor(RELAYER_ADDRESS);
+  console.log("✅ Nonce 监控任务已启动");
+} else {
+  console.warn("⚠️ 未配置 RELAYER_ADDRESS，Nonce 监控任务未启动");
+}
 
 const app = express();
 const PORT = 9527;
@@ -25,7 +43,37 @@ app.get("/", (req, res) => {
   res.send("Relayer is running 🚀");
 });
 
-app.get("/api/getMyAddr", async (req, res) => {
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    version: "v1.0.0",
+    timestamp: Date.now(),
+    uptime: process.uptime()
+  });
+});
+
+/**
+ * RPC 健康池状态
+ */
+app.get("/api/v1/rpc-health", (req, res) => {
+  try {
+    const { getRpcHealthPool } = require("./utils/rpcHealthPool.js");
+    const healthPool = getRpcHealthPool();
+    const status = healthPool.getStatus();
+    
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get("/api/v1/getMyAddr", async (req, res) => {
    try {
     const eoaAddress = req.query.eoaAddress as string;
     if (!eoaAddress) {
@@ -55,7 +103,7 @@ app.get("/api/getMyAddr", async (req, res) => {
 /**
  * 检查 Safe 钱包是否已部署
  */
-app.get("/api/checkSafeDeployed", async (req, res) => {
+app.get("/api/v1/checkSafeDeployed", async (req, res) => {
   try {
     const eoaAddress = req.query.eoaAddress as string; 
     const safeAddr = await safeModule.getSafeAddress(eoaAddress);
@@ -86,7 +134,7 @@ app.get("/api/checkSafeDeployed", async (req, res) => {
 /**
  * Relayer 代付 gas 部署 Safe
  */
-app.post("/api/deploy-safe", async (req, res) => {
+app.post("/api/v1/deploy-safe", async (req, res) => {
   try {
     const { userAddress } = req.body;
     
@@ -121,7 +169,7 @@ app.post("/api/deploy-safe", async (req, res) => {
  * 准备 Safe 交易（ERC20 转账、合约调用等）
  * 返回 safeTxHash 供前端签名
  */
-app.post("/api/prepare-transaction", async (req, res) => {
+app.post("/api/v1/prepare-transaction", async (req, res) => {
   try {
     const { safeAddress, to, value, data } = req.body;
     
@@ -158,7 +206,7 @@ app.post("/api/prepare-transaction", async (req, res) => {
  * 准备 Safe 交易并收取 ERC20 gas 费
  * 返回 safeTxHash 供前端签名
  */
-app.post("/api/prepare-transaction-with-fee", async (req, res) => {
+app.post("/api/v1/prepare-transaction-with-fee", async (req, res) => {
   try {
     const { safeAddress, to, value, data } = req.body;
     
@@ -193,7 +241,7 @@ app.post("/api/prepare-transaction-with-fee", async (req, res) => {
 /**
  * 执行 Safe 交易（Relayer 代付 gas）
  */
-app.post("/api/execute-transaction", async (req, res) => {
+app.post("/api/v1/execute-transaction", async (req, res) => {
   try {
     const { safeAddress, safeTransaction, signature, userAddress } = req.body;
     

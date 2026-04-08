@@ -1,7 +1,9 @@
 import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
-import { contractNetworks, tokenInfo } from "../config/config.js";
+import { contractNetworks, tokenInfo, feeConfig } from "../config/config.js";
+import { getProvider, getRelayerWallet } from "../utils/provider.js";
+import { estimateGas } from "../utils/rpcWrapper.js";
 
 dotenv.config();
 
@@ -57,7 +59,7 @@ async function prepareConfigWithFee(params: {
     value: string;
     data: string;
 }) {
-    const provider = new ethers.JsonRpcProvider(process.env.URL);
+    const provider = getProvider();
 
     const protocolKit = await (Safe as any).init({
         provider: process.env.URL!,
@@ -74,22 +76,22 @@ async function prepareConfigWithFee(params: {
             operation: 0
         }]
     });
-    // 估算 gas 消耗
-    const estimatedGas = await provider.estimateGas({
+    // 估算 gas 消耗（使用 rpcWrapper，带超时和自动切换）
+    const estimatedGasResult = await estimateGas({
         to: params.to,
         value: params.value,
         data: params.data,
         from: params.safeAddress
     });
 
-    // 设置 gas 费参数
-    const safeTxGas = (estimatedGas * 120n) / 100n; // 加 20% buffer
-    const baseGas = 21000n;
+    // 设置 gas 费参数（使用配置）
+    const safeTxGas = (estimatedGasResult * BigInt(Math.floor(feeConfig.GAS_BUFFER * 100))) / 100n;
+    const baseGas = feeConfig.BASE_GAS;
     const totalGas = safeTxGas + baseGas;
 
-    // 计算 gasPrice：如果想收取 0.1 token 总费用
-    // gasPrice = 0.1 token / totalGas
-    const totalFee = ethers.parseUnits("0.1", 18); // 总共收取 0.1 token
+    // 计算 gasPrice：使用配置的默认费用
+    // gasPrice = totalFee / totalGas
+    const totalFee = ethers.parseUnits(feeConfig.DEFAULT_FEE, 18);
     const gasPrice = totalFee / totalGas;
 
     safeTransaction.data.safeTxGas = safeTxGas;

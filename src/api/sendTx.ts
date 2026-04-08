@@ -2,16 +2,23 @@ import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
 import { contractNetworks } from "../config/config.js";
+import { SafeTransactionData } from "../interface/interface.js";
+import { getProvider, getRelayerWallet } from "../utils/provider.js";
+import { acquireNonce } from "../utils/nonce.js";
+import { estimateGas, getFeeData, sendTransaction } from "../utils/rpcWrapper.js";
+import { saveTxToCache } from "../utils/txCache.js";
 
 dotenv.config();
 
 // 执行 Safe 交易（Relayer 代付 gas）
 async function executeSafeTransaction(params: {
     safeAddress: string;
-    safeTransaction: any;  // 前端返回的 safeTransaction
+    safeTransaction: SafeTransactionData;  // 类型安全的交易数据
     signature: string;     // 用户签名
     userAddress: string;   // 用户地址（签名者）
 }) {
+    const relayerWallet = getRelayerWallet();
+    
     // 初始化 Safe Protocol Kit
     const protocolKit = await (Safe as any).init({
         provider: process.env.URL!,
@@ -51,41 +58,107 @@ async function executeSafeTransaction(params: {
 
     // 验证交易哈希
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
-    // 验证签名
-    const recoveredAddress = ethers.verifyMessage(
-        ethers.getBytes(safeTxHash),
-        params.signature
-    );
+    
+    // 添加调试信息
+    console.log('===== 后端交易参数 =====');
+    console.log('Safe 地址:', params.safeAddress);
+    console.log('to:', params.safeTransaction.to);
+    console.log('value:', params.safeTransaction.value);
+    console.log('data:', params.safeTransaction.data);
+    console.log('operation:', params.safeTransaction.operation);
+    console.log('nonce:', params.safeTransaction.nonce);
+    console.log('🔍 收费参数:');
+    console.log('  safeTxGas:', params.safeTransaction.safeTxGas);
+    console.log('  baseGas:', params.safeTransaction.baseGas);
+    console.log('  gasPrice:', params.safeTransaction.gasPrice);
+    console.log('  gasToken:', params.safeTransaction.gasToken);
+    console.log('  refundReceiver:', params.safeTransaction.refundReceiver);
+    console.log('后端计算的 safeTxHash:', safeTxHash);
+    console.log('用户地址:', params.userAddress);
+    console.log('前端签名:', params.signature);
+    console.log('==================');
+    
+    // 解析签名
+    const r = params.signature.slice(0, 66);
+    const s = '0x' + params.signature.slice(66, 130);
+    const v = parseInt(params.signature.slice(130, 132), 16);
+    
+    console.log('解析的签名 r:', r);
+    console.log('解析的签名 s:', s);
+    console.log('解析的签名 v:', v);
+    
+    // 验证签名（直接使用原始签名）
+    const originalSignature = r + s.slice(2) + v.toString(16).padStart(2, '0');
+    const recoveredAddress = ethers.recoverAddress(safeTxHash, originalSignature);
+    
+    console.log('恢复的地址:', recoveredAddress);
     
     if (recoveredAddress.toLowerCase() !== params.userAddress.toLowerCase()) {
         throw new Error(`签名验证失败：恢复的地址 ${recoveredAddress} 与用户地址 ${params.userAddress} 不匹配`);
     }
-
-    // Safe 签名格式调整
-    const r = params.signature.slice(0, 66);  // 0x + 64 chars
-    const s = '0x' + params.signature.slice(66, 130);  // 64 chars
-    const v = parseInt(params.signature.slice(130, 132), 16);  // 2 chars
     
-    // Safe 对于 eth_sign (EIP-191) 签名需要 v+4
-    // 如果 v 已经是 31/32，说明前端已经调整过，不需要再加
-    let adjustedV = v;
-    if (v === 27 || v === 28) {
-        adjustedV = v + 4;  // 27 -> 31, 28 -> 32
-    }
+    // 检查用户是否是 Safe 的 owner
+    const safeOwners = await protocolKit.getOwners();
+    console.log('Safe owners:', safeOwners);
+    console.log('用户是 owner?', safeOwners.map((o: string) => o.toLowerCase()).includes(params.userAddress.toLowerCase()));
     
-    const adjustedSignature = r + s.slice(2) + adjustedV.toString(16).padStart(2, '0');
-    
-    // 添加用户签名
+    // 添加用户签名（使用原始签名，不调整 v 值）
     await safeTransaction.addSignature({
         signer: params.userAddress,
-        data: adjustedSignature
+        data: originalSignature
     });
 
-    // 执行交易（Relayer 代付 gas）
-    const executeTxResponse = await protocolKit.executeTransaction(safeTransaction);
-
+    // 获取编码后的交易数据
+    const encodedTx = await protocolKit.getEncodedTransaction(safeTransaction);
+    
+    // 先并行获取 Gas 估算和 Gas Price（可能失败，不消耗 nonce）
+    const [estimatedGasResult, feeDataResult] = await Promise.all([
+        estimateGas({
+            to: params.safeAddress,
+            data: encodedTx,
+            from: relayerWallet.address
+        }),
+        getFeeData()
+    ]);
+    
+    // Gas 估算成功后，再获取 nonce（避免 estimateGas 失败时造成 nonce 空洞）
+    const nonce = await acquireNonce(relayerWallet.address);
+    
+    // Gas 参数放大 1.2 倍（确保交易成功）
+    const gasLimit = Math.floor(Number(estimatedGasResult) * 1.2);
+    const maxFeePerGas = feeDataResult.maxFeePerGas 
+        ? Math.floor(Number(feeDataResult.maxFeePerGas) * 1.2).toString()
+        : undefined;
+    const maxPriorityFeePerGas = feeDataResult.maxPriorityFeePerGas 
+        ? Math.floor(Number(feeDataResult.maxPriorityFeePerGas) * 1.2).toString()
+        : undefined;
+    
+    // 发送交易（使用 rpcWrapper 的 sendTransaction，带超时和自动切换）
+    const tx = await sendTransaction(relayerWallet, {
+        to: params.safeAddress,
+        value: "0",
+        data: encodedTx,
+        nonce: nonce,
+        gasLimit: gasLimit,
+        maxFeePerGas: maxFeePerGas ? BigInt(maxFeePerGas) : undefined,
+        maxPriorityFeePerGas: maxPriorityFeePerGas ? BigInt(maxPriorityFeePerGas) : undefined,
+    });
+    
+    console.log('✅ 交易已发送:', tx.hash);
+    
+    // 交易发送成功后才保存到缓存（用于重发）
+    await saveTxToCache(relayerWallet.address, nonce, {
+        nonce: nonce,
+        to: params.safeAddress,
+        value: "0",
+        data: encodedTx,
+        gasLimit: gasLimit.toString(),
+        maxFeePerGas: maxFeePerGas || "0",
+        maxPriorityFeePerGas: maxPriorityFeePerGas || "0"
+    });
+    
     return {
-        txHash: executeTxResponse.hash,
+        txHash: tx.hash,
         status: 'pending'
     };
 }

@@ -11,3 +11,10 @@ export const contractNetworks = {
         RELAYER_ADDRESS: "0xdf893ff798f398ba5e5d1c5e01cf55f57847cf1b",
         CHAIN_ID: 84532
     }
+
+    export const feeConfig = {
+        DEFAULT_FEE: "0.1",  // token
+        GAS_BUFFER: 1.5,     // 150%
+        BASE_GAS: 21000n
+    };
+    
