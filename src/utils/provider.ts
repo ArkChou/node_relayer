@@ -1,21 +1,15 @@
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 import { getRpcHealthPool } from "./rpcHealthPool.js";
+import { RPC_URLS } from "../config/config.js";
 
 dotenv.config();
-
-// RPC URL 配置
-export const RPC_URLS = [
-  'https://rpc.ankr.com/base_sepolia/b7ba17a623426bc2e8c83061dae7092036d7b848ed361f3f839b5fd495672665',
-  'https://base-sepolia.g.alchemy.com/v2/QT61ixLwVZ9CguVBHYkJp',
-  'https://sepolia.base.org'
-];
 
 let _provider: ethers.JsonRpcProvider | null = null;
 let _wallet: ethers.Wallet | null = null;
 let currentUrl: string | null = null;
 
-const RPC_TIMEOUT = 10000; // 3 秒超时
+const RPC_TIMEOUT = 10000; // 10 秒超时
 
 /**
  * 获取全局复用的 Provider 实例（从健康池获取）
@@ -35,9 +29,9 @@ export function getProvider(): ethers.JsonRpcProvider {
     
     return _provider;
   } catch (error) {
-    // 如果健康池未初始化，降级使用环境变量
+    // 如果健康池未初始化，降级使用第一个 RPC
     if (!_provider) {
-      _provider = new ethers.JsonRpcProvider(process.env.URL);
+      _provider = new ethers.JsonRpcProvider(RPC_URLS[0]);
     }
     return _provider;
   }

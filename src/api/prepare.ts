@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
-import { contractNetworks, tokenInfo, feeConfig } from "../config/config.js";
+import { contractNetworks, tokenInfo, feeConfig, RPC_URLS } from "../config/config.js";
 import { getProvider, getRelayerWallet } from "../utils/provider.js";
 import { estimateGas } from "../utils/rpcWrapper.js";
 
@@ -15,7 +15,7 @@ async function prepareConfig(params:{
     }
 ) {
     const protocolKit = await (Safe as any).init({
-            provider: process.env.URL!,
+            provider: RPC_URLS[0],
             signer: process.env.PRIVATE_KEY!,
             safeAddress: params.safeAddress
         });
@@ -62,7 +62,7 @@ async function prepareConfigWithFee(params: {
     const provider = getProvider();
 
     const protocolKit = await (Safe as any).init({
-        provider: process.env.URL!,
+        provider: RPC_URLS[0],
         signer: process.env.PRIVATE_KEY!,
         safeAddress: params.safeAddress
     });

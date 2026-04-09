@@ -45,3 +45,25 @@ docker-compose -f docker-compose.dev.yml restart          # 重启所有服务
 docker exec -it relayer sh                    # 进入 Relayer 容器
 docker exec -it redis-1 redis-cli             # 进入 Redis 容器
 ```
+
+
+# 1. 停止开发环境
+docker-compose -f docker-compose.dev.yml down
+ 
+# 3. 查看状态
+docker-compose -f docker-compose.prod.yml ps
+ 
+# 4. 查看日志
+docker-compose -f docker-compose.prod.yml logs -f relayer-1
+ 
+# 5. 测试负载均衡
+curl http://localhost/health
+
+# 构建命令
+docker-compose -f docker-compose.prod.yml up -d --build
+
+# 启动生产环境
+docker-compose -f docker-compose.prod.yml up -d
+
+# 查看状态
+docker-compose -f docker-compose.prod.yml ps

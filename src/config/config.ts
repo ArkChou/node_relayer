@@ -17,4 +17,10 @@ export const contractNetworks = {
         GAS_BUFFER: 1.5,     // 150%
         BASE_GAS: 21000n
     };
+
+    export const RPC_URLS = [
+        'https://rpc.ankr.com/base_sepolia/b7ba17a623426bc2e8c83061dae7092036d7b848ed361f3f839b5fd495672665',
+        'https://base-sepolia.g.alchemy.com/v2/QT61ixLwVZ9CguVBHYkJp',
+        'https://sepolia.base.org'
+    ];
     

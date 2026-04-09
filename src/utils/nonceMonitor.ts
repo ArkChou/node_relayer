@@ -49,25 +49,25 @@ export function stopNonceMonitor(): void {
  * 执行监控任务（尝试获取主节点锁）
  */
 async function runMonitorTask(relayerAddress: string): Promise<void> {
-  const redis = getRedisCluster();
-  
-  // 尝试获取主节点锁（SET NX EX）
-  const lockAcquired = await redis.set(
-    LEADER_LOCK_KEY,
-    process.pid.toString(),
-    'EX',
-    LEADER_LOCK_TTL,
-    'NX'
-  );
-
-  if (!lockAcquired) {
-    // 未获取到锁，说明其他节点是主节点
-    return;
-  }
-
-  console.log('👑 当前节点是主节点，执行监控任务...');
-
   try {
+    const redis = getRedisCluster();
+    
+    // 尝试获取主节点锁（SET NX EX）
+    const lockAcquired = await redis.set(
+      LEADER_LOCK_KEY,
+      process.pid.toString(),
+      'EX',
+      LEADER_LOCK_TTL,
+      'NX'
+    );
+
+    if (!lockAcquired) {
+      // 未获取到锁，说明其他节点是主节点
+      return;
+    }
+
+    console.log('👑 当前节点是主节点，执行监控任务...');
+
     // 1. 同步 confirmed_nonce
     await syncConfirmedNonce(relayerAddress);
 
@@ -76,8 +76,13 @@ async function runMonitorTask(relayerAddress: string): Promise<void> {
 
     // 3. 清理已确认的交易缓存
     await cleanupConfirmedTransactions(relayerAddress);
-  } catch (error) {
-    console.error('❌ 监控任务执行失败:', error);
+  } catch (error: any) {
+    // Redis 连接错误不应该中断监控任务
+    if (error.message && error.message.includes('Connection is closed')) {
+      console.error('⚠️ Redis 连接已关闭，等待重连...');
+    } else {
+      console.error('❌ 监控任务执行失败:', error);
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
-import { contractNetworks, feeConfig } from "../config/config.js";
+import { contractNetworks, feeConfig, RPC_URLS } from "../config/config.js";
 import { getProvider, getRelayerWallet } from "../utils/provider.js";
 import { acquireNonce } from "../utils/nonce.js";
 import { estimateGas, getFeeData, sendTransaction, getCode } from "../utils/rpcWrapper.js";
@@ -13,7 +13,7 @@ dotenv.config();
 async function getSafeAddress(userAddress: string) {
 
     const protocolKit = await (Safe as any).init({
-        provider: process.env.URL!,
+        provider: RPC_URLS[0],
         signer: process.env.PRIVATE_KEY!,
         predictedSafe: {
             safeAccountConfig: {
@@ -40,7 +40,7 @@ async function isSafeDeployed(safeAddress: string): Promise<boolean> {
 // 为前端准备部署账户交易数据（返回给前端，前端可以预览）
 async function prepareDeploymentTx(eoaAddress: string) {
     const protocolKit = await (Safe as any).init({
-        provider: process.env.URL!,
+        provider: RPC_URLS[0],
         signer: process.env.PRIVATE_KEY!,
         predictedSafe: {
             safeAccountConfig: {
@@ -80,7 +80,7 @@ async function deploySafeByRelayer(params: {
     console.log("📝 步骤 1: 初始化 Safe Protocol Kit...");
     // 初始化 Safe Protocol Kit（预测模式）
     const protocolKit = await (Safe as any).init({
-        provider: process.env.URL!,
+        provider: RPC_URLS[0],
         signer: process.env.PRIVATE_KEY!,
         predictedSafe: {
             safeAccountConfig: {

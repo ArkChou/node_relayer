@@ -5,22 +5,17 @@ import configModule from "./api/prepare.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import { initRpcHealthPool } from "./utils/rpcHealthPool.js";
-import { RPC_URLS } from "./utils/provider.js";
+import { RPC_URLS, tokenInfo } from "./config/config.js";
 import { startNonceMonitor } from "./utils/nonceMonitor.js";
 
 dotenv.config();
 
-// 初始化 RPC 健康池（使用 provider.ts 中配置的 URL）
+// 初始化 RPC 健康池
 initRpcHealthPool(RPC_URLS);
 
-// 启动 Nonce 监控任务（6秒检查一次，自动重发卡住的交易）
-const RELAYER_ADDRESS = process.env.RELAYER_ADDRESS || "";
-if (RELAYER_ADDRESS) {
-  startNonceMonitor(RELAYER_ADDRESS);
-  console.log("✅ Nonce 监控任务已启动");
-} else {
-  console.warn("⚠️ 未配置 RELAYER_ADDRESS，Nonce 监控任务未启动");
-}
+// 启动 Nonce 监控任务
+startNonceMonitor(tokenInfo.RELAYER_ADDRESS);
+console.log("✅ Nonce 监控任务已启动");
 
 const app = express();
 const PORT = 9527;
@@ -243,7 +238,7 @@ app.post("/api/v1/prepare-transaction-with-fee", async (req, res) => {
  */
 app.post("/api/v1/execute-transaction", async (req, res) => {
   try {
-    const { safeAddress, safeTransaction, signature, userAddress } = req.body;
+    const { safeAddress, safeTransaction, signature, userAddress, safeTxHash } = req.body;
     
     if (!safeAddress || !safeTransaction || !signature || !userAddress) {
       return res.status(400).json({
@@ -256,7 +251,8 @@ app.post("/api/v1/execute-transaction", async (req, res) => {
       safeAddress,
       safeTransaction,
       signature,
-      userAddress
+      userAddress,
+      safeTxHash  // 传递前端的 safeTxHash（可选）
     });
     
     return res.json({

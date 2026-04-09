@@ -18,8 +18,14 @@ export function getRedisCluster(): Cluster {
       {
         redisOptions: {
           password: process.env.REDIS_PASSWORD,
+          connectTimeout: 10000,
+          commandTimeout: 5000,
         },
+        maxRedirections: 16,
+        retryDelayOnFailover: 100,
+        retryDelayOnClusterDown: 300,
         clusterRetryStrategy: (times: any) => {
+          if (times > 10) return null;
           const delay = Math.min(100 + times * 10, 2000);
           return delay;
         },
