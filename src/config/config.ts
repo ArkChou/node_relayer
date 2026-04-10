@@ -21,6 +21,8 @@ export const contractNetworks = {
     export const RPC_URLS = [
         'https://rpc.ankr.com/base_sepolia/b7ba17a623426bc2e8c83061dae7092036d7b848ed361f3f839b5fd495672665',
         'https://base-sepolia.g.alchemy.com/v2/QT61ixLwVZ9CguVBHYkJp',
-        'https://sepolia.base.org'
+        'https://sepolia.base.org',
+        'https://base-sepolia.g.alchemy.com/v2/bEXOq0wm3YcWEjFMK_Kjz',
+        'https://base-sepolia.g.alchemy.com/v2/BTBeK4rTba44dAl7RwupQ'
     ];
     

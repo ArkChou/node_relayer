@@ -5,38 +5,44 @@ services:
   redis-node-1:
     image: redis:7-alpine
     container_name: redis-node-1
-    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-1 --cluster-announce-port 6379 --cluster-announce-bus-port 16379
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-1 --cluster-announce-port 6379 --cluster-announce-bus-port 16379 --requirepass ${REDIS_PASSWORD:-changeme} --masterauth ${REDIS_PASSWORD:-changeme}
     ports:
-      - "6379:6379"
-      - "16379:16379"
+      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:16379:16379"
     volumes:
       - redis-data-1:/data
     networks:
       - relayer-network
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
 
   redis-node-2:
     image: redis:7-alpine
     container_name: redis-node-2
-    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-2 --cluster-announce-port 6379 --cluster-announce-bus-port 16379
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-2 --cluster-announce-port 6379 --cluster-announce-bus-port 16379 --requirepass ${REDIS_PASSWORD:-changeme} --masterauth ${REDIS_PASSWORD:-changeme}
     ports:
-      - "6380:6379"
-      - "16380:16379"
+      - "127.0.0.1:6380:6379"
+      - "127.0.0.1:16380:16379"
     volumes:
       - redis-data-2:/data
     networks:
       - relayer-network
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
 
   redis-node-3:
     image: redis:7-alpine
     container_name: redis-node-3
-    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-3 --cluster-announce-port 6379 --cluster-announce-bus-port 16379
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000 --appendonly yes --dir /data --cluster-announce-ip redis-node-3 --cluster-announce-port 6379 --cluster-announce-bus-port 16379 --requirepass ${REDIS_PASSWORD:-changeme} --masterauth ${REDIS_PASSWORD:-changeme}
     ports:
-      - "6381:6379"
-      - "16381:16379"
+      - "127.0.0.1:6381:6379"
+      - "127.0.0.1:16381:16379"
     volumes:
       - redis-data-3:/data
     networks:
       - relayer-network
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
 
   # Redis 集群初始化
   redis-cluster-init:
@@ -46,12 +52,14 @@ services:
       - redis-node-1
       - redis-node-2
       - redis-node-3
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
     command:
       - sh
       - -c
       - |
         sleep 5
-        redis-cli --cluster create redis-node-1:6379 redis-node-2:6379 redis-node-3:6379 --cluster-replicas 0 --cluster-yes
+        redis-cli --cluster create redis-node-1:6379 redis-node-2:6379 redis-node-3:6379 --cluster-replicas 0 --cluster-yes -a $${REDIS_PASSWORD}
         echo '✅ Redis 集群初始化完成'
     networks:
       - relayer-network
@@ -63,6 +71,7 @@ services:
     environment:
       - PRIVATE_KEY=${PRIVATE_KEY}
       - REDIS_CLUSTER_NODES=redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
     depends_on:
       - redis-cluster-init
     networks:
@@ -75,6 +84,7 @@ services:
     environment:
       - PRIVATE_KEY=${PRIVATE_KEY}
       - REDIS_CLUSTER_NODES=redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
     depends_on:
       - redis-cluster-init
     networks:
@@ -87,6 +97,7 @@ services:
     environment:
       - PRIVATE_KEY=${PRIVATE_KEY}
       - REDIS_CLUSTER_NODES=redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
     depends_on:
       - redis-cluster-init
     networks:
@@ -98,7 +109,7 @@ services:
     image: nginx:alpine
     container_name: nginx
     ports:
-      - "80:80"
+      - "9525:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
