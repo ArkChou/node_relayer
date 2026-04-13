@@ -15,29 +15,30 @@ docker-compose -f docker-compose.redis.yml up -d
 
 ### 启动服务
 ```bash
-docker-compose -f docker-compose.dev.yml up -d
-docker-compose -f docker-compose.dev.yml up -d --build  # 重新构建
+docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml up -d --build  # 重新构建
 ```
 
 ### 停止服务
 ```bash
-docker-compose -f docker-compose.dev.yml stop      # 停止服务
-docker-compose -f docker-compose.dev.yml down      # 停止并删除容器
-docker-compose -f docker-compose.dev.yml down -v   # 停止并删除容器和数据卷
+docker-compose -f docker-compose.prod.yml stop      # 停止服务
+docker-compose -f docker-compose.prod.yml down      # 停止并删除容器
+docker-compose -f docker-compose.prod.yml down -v   # 停止并删除容器和数据卷
 ```
 
 ### 查看状态和日志
 ```bash
-docker-compose -f docker-compose.dev.yml ps                    # 查看容器状态
-docker-compose -f docker-compose.dev.yml logs -f relayer       # 查看 Relayer 日志
-docker-compose -f docker-compose.dev.yml logs -f               # 查看所有日志
-docker-compose -f docker-compose.dev.yml logs --tail=100 relayer  # 查看最后100行
+docker-compose -f docker-compose.prod.yml ps                      # 查看容器状态
+docker-compose -f docker-compose.prod.yml logs -f relayer-1       # 查看 Relayer-1 日志
+docker-compose -f docker-compose.prod.yml logs -f                 # 查看所有日志
+docker-compose -f docker-compose.prod.yml logs --tail=100 relayer-1  # 查看最后100行
+docker-compose -f docker-compose.prod.yml logs -f relayer-1 relayer-2 relayer-3  # 查看所有 Relayer
 ```
 
 ### 重启服务
 ```bash
-docker-compose -f docker-compose.dev.yml restart relayer  # 重启 Relayer
-docker-compose -f docker-compose.dev.yml restart          # 重启所有服务
+docker-compose -f docker-compose.prod.yml restart relayer-1  # 重启 Relayer-1
+docker-compose -f docker-compose.prod.yml restart            # 重启所有服务
 ```
 
 ### 进入容器

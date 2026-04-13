@@ -7,6 +7,7 @@ import { getProvider, getRelayerWallet } from "../utils/provider.js";
 import { acquireNonce } from "../utils/nonce.js";
 import { estimateGas, getFeeData, sendTransaction } from "../utils/rpcWrapper.js";
 import { saveTxToCache } from "../utils/txCache.js";
+import { cache, CACHE_TTL } from "../utils/cache.js";
 
 dotenv.config();
 
@@ -27,8 +28,18 @@ async function executeSafeTransaction(params: {
         safeAddress: params.safeAddress
     });
 
-    // 检查 Safe 的 owners
-    const owners = await protocolKit.getOwners();
+    // 检查 Safe 的 owners（使用缓存）
+    const ownersCacheKey = `safe_owners:${params.safeAddress.toLowerCase()}`;
+    let owners: string[] = cache.get<string[]>(ownersCacheKey) || [];
+    
+    if (owners.length === 0) {
+        owners = await protocolKit.getOwners();
+        cache.set(ownersCacheKey, owners, CACHE_TTL.SAFE_OWNERS);
+        console.log('🔍 从 RPC 获取 Safe owners');
+    } else {
+        console.log('✅ 使用缓存的 Safe owners');
+    }
+    
     const isOwner = owners.some((owner: string) => owner.toLowerCase() === params.userAddress.toLowerCase())
     
     if (!isOwner) {
@@ -100,10 +111,9 @@ async function executeSafeTransaction(params: {
         throw new Error(`签名验证失败：恢复的地址 ${recoveredAddress} 与用户地址 ${params.userAddress} 不匹配`);
     }
     
-    // 检查用户是否是 Safe 的 owner
-    const safeOwners = await protocolKit.getOwners();
-    console.log('Safe owners:', safeOwners);
-    console.log('用户是 owner?', safeOwners.map((o: string) => o.toLowerCase()).includes(params.userAddress.toLowerCase()));
+    // 已在前面验证过 owner，这里只打印日志
+    console.log('Safe owners:', owners);
+    console.log('用户是 owner?', isOwner);
     
     // 🔧 修复：直接使用 Safe 合约的 execTransaction 编码，不通过 addSignature
     // Safe 合约的 execTransaction 函数签名：
@@ -129,14 +139,34 @@ async function executeSafeTransaction(params: {
     ]);
     
     // 先并行获取 Gas 估算和 Gas Price（可能失败，不消耗 nonce）
-    const [estimatedGasResult, feeDataResult] = await Promise.all([
-        estimateGas({
-            to: params.safeAddress,
-            data: encodedTx,
-            from: relayerWallet.address
-        }),
-        getFeeData()
+    // Gas Price 使用缓存
+    const gasPriceCacheKey = 'gas_price';
+    let feeDataResult = cache.get<any>(gasPriceCacheKey);
+    
+    const estimateGasPromise = estimateGas({
+        to: params.safeAddress,
+        data: encodedTx,
+        from: relayerWallet.address
+    });
+    
+    let getFeeDataPromise: Promise<any>;
+    if (!feeDataResult) {
+        console.log('🔍 从 RPC 获取 Gas Price');
+        getFeeDataPromise = getFeeData().then(data => {
+            cache.set(gasPriceCacheKey, data, CACHE_TTL.GAS_PRICE);
+            return data;
+        });
+    } else {
+        console.log('✅ 使用缓存的 Gas Price');
+        getFeeDataPromise = Promise.resolve(feeDataResult);
+    }
+    
+    const [estimatedGasResult, feeDataResultFinal] = await Promise.all([
+        estimateGasPromise,
+        getFeeDataPromise
     ]);
+    
+    feeDataResult = feeDataResultFinal;
     
     // Gas 估算成功后，再获取 nonce（避免 estimateGas 失败时造成 nonce 空洞）
     const nonce = await acquireNonce(relayerWallet.address);

@@ -7,6 +7,8 @@ import dotenv from "dotenv";
 import { initRpcHealthPool } from "./utils/rpcHealthPool.js";
 import { RPC_URLS, tokenInfo } from "./config/config.js";
 import { startNonceMonitor } from "./utils/nonceMonitor.js";
+import { txQueue } from "./queue/txQueue.js";
+import "./queue/worker.js";
 
 dotenv.config();
 
@@ -18,7 +20,7 @@ startNonceMonitor(tokenInfo.RELAYER_ADDRESS);
 console.log("✅ Nonce 监控任务已启动");
 
 const app = express();
-const PORT = 9527;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 9525;
 
 app.use(cors({
   origin: '*', // 开发环境可以用 *，生产环境应该指定具体域名
@@ -234,7 +236,7 @@ app.post("/api/v1/prepare-transaction-with-fee", async (req, res) => {
 });
 
 /**
- * 执行 Safe 交易（Relayer 代付 gas）
+ * 执行 Safe 交易（异步队列）
  */
 app.post("/api/v1/execute-transaction", async (req, res) => {
   try {
@@ -247,21 +249,29 @@ app.post("/api/v1/execute-transaction", async (req, res) => {
       });
     }
 
-    const result = await transferModule.executeSafeTransaction({
+    console.log("\n📥 交易加入队列...");
+    
+    // 添加到队列
+    const job = await txQueue.add('execute', {
       safeAddress,
       safeTransaction,
       signature,
       userAddress,
-      safeTxHash  // 传递前端的 safeTxHash（可选）
+      safeTxHash
     });
     
+    console.log(`✅ 任务已入队: ${job.id}`);
+    
+    // 立即返回任务 ID
     return res.json({
       success: true,
-      ...result
+      jobId: job.id,
+      status: 'queued',
+      message: '交易已加入队列，请使用 jobId 查询状态'
     });
 
   } catch (err: any) {
-    console.error("❌ 执行交易失败:", err);
+    console.error("❌ 入队失败:", err);
     return res.status(500).json({
       success: false,
       error: err.message
@@ -270,8 +280,42 @@ app.post("/api/v1/execute-transaction", async (req, res) => {
 });
 
 /**
- * 启动服务
+ * 查询任务状态
  */
-app.listen(PORT, () => {
-  console.log(`🚀 Relayer running on http://localhost:${PORT}`);
+app.get("/api/v1/transaction/:jobId", async (req, res) => {
+  try {
+    const job = await txQueue.getJob(req.params.jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    const state = await job.getState();
+    const progress = job.progress();
+    
+    return res.json({
+      success: true,
+      jobId: job.id,
+      state,           // 'waiting', 'active', 'completed', 'failed'
+      progress,
+      result: job.returnvalue,
+      failedReason: job.failedReason,
+      attemptsMade: job.attemptsMade,
+      processedOn: job.processedOn,
+      finishedOn: job.finishedOn
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Relayer running on http://0.0.0.0:${PORT}`);
+  console.log(`   可访问: http://localhost:${PORT}`);
 });
