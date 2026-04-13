@@ -8,6 +8,8 @@ import { acquireNonce } from "../utils/nonce.js";
 import { estimateGas, getFeeData, sendTransaction } from "../utils/rpcWrapper.js";
 import { saveTxToCache } from "../utils/txCache.js";
 import { cache, CACHE_TTL } from "../utils/cache.js";
+import logger from "../utils/logger.js";
+import { NotOwnerError, InvalidSignatureError, GasEstimationError } from "../utils/errors.js";
 
 dotenv.config();
 
@@ -35,15 +37,15 @@ async function executeSafeTransaction(params: {
     if (owners.length === 0) {
         owners = await protocolKit.getOwners();
         cache.set(ownersCacheKey, owners, CACHE_TTL.SAFE_OWNERS);
-        console.log('🔍 从 RPC 获取 Safe owners');
+        logger.debug('🔍 从 RPC 获取 Safe owners', { safeAddress: params.safeAddress });
     } else {
-        console.log('✅ 使用缓存的 Safe owners');
+        logger.debug('✅ 使用缓存的 Safe owners', { safeAddress: params.safeAddress });
     }
     
     const isOwner = owners.some((owner: string) => owner.toLowerCase() === params.userAddress.toLowerCase())
     
     if (!isOwner) {
-        throw new Error(`用户 ${params.userAddress} 不是 Safe 的 owner。Safe 的 owners: ${owners.join(', ')}`);
+        throw new NotOwnerError(params.userAddress, owners);
     }
 
     // 重建 SafeTransaction 对象（使用前端传来的完整数据，包括 gas 费参数）
@@ -71,49 +73,31 @@ async function executeSafeTransaction(params: {
     // 验证交易哈希
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
     
-    // 添加调试信息
-    console.log('===== 后端交易参数 =====');
-    console.log('Safe 地址:', params.safeAddress);
-    console.log('to:', params.safeTransaction.to);
-    console.log('value:', params.safeTransaction.value);
-    console.log('data:', params.safeTransaction.data);
-    console.log('operation:', params.safeTransaction.operation);
-    console.log('nonce:', params.safeTransaction.nonce);
-    console.log('🔍 收费参数:');
-    console.log('  safeTxGas:', params.safeTransaction.safeTxGas);
-    console.log('  baseGas:', params.safeTransaction.baseGas);
-    console.log('  gasPrice:', params.safeTransaction.gasPrice);
-    console.log('  gasToken:', params.safeTransaction.gasToken);
-    console.log('  refundReceiver:', params.safeTransaction.refundReceiver);
-    console.log('🔑 前端传来的 safeTxHash:', params.safeTxHash || '未提供');
-    console.log('🔑 后端计算的 safeTxHash:', safeTxHash);
-    console.log('⚠️  safeTxHash 是否一致?', params.safeTxHash === safeTxHash);
-    console.log('用户地址:', params.userAddress);
-    console.log('前端签名:', params.signature);
-    console.log('==================');
+    // 调试日志
+    logger.debug('🔍 后端交易参数', {
+        safeAddress: params.safeAddress,
+        to: params.safeTransaction.to,
+        value: params.safeTransaction.value,
+        nonce: params.safeTransaction.nonce,
+        safeTxHashMatch: params.safeTxHash === safeTxHash
+    });
     
     // 解析签名
     const r = params.signature.slice(0, 66);
     const s = '0x' + params.signature.slice(66, 130);
     const v = parseInt(params.signature.slice(130, 132), 16);
     
-    console.log('解析的签名 r:', r);
-    console.log('解析的签名 s:', s);
-    console.log('解析的签名 v:', v);
+    logger.debug('解析签名', { r, s, v });
     
     // 验证签名（直接使用原始签名）
     const originalSignature = r + s.slice(2) + v.toString(16).padStart(2, '0');
     const recoveredAddress = ethers.recoverAddress(safeTxHash, originalSignature);
     
-    console.log('恢复的地址:', recoveredAddress);
+    logger.debug('签名验证', { recoveredAddress, userAddress: params.userAddress });
     
     if (recoveredAddress.toLowerCase() !== params.userAddress.toLowerCase()) {
-        throw new Error(`签名验证失败：恢复的地址 ${recoveredAddress} 与用户地址 ${params.userAddress} 不匹配`);
+        throw new InvalidSignatureError(`恢复的地址 ${recoveredAddress} 与用户地址 ${params.userAddress} 不匹配`);
     }
-    
-    // 已在前面验证过 owner，这里只打印日志
-    console.log('Safe owners:', owners);
-    console.log('用户是 owner?', isOwner);
     
     // 🔧 修复：直接使用 Safe 合约的 execTransaction 编码，不通过 addSignature
     // Safe 合约的 execTransaction 函数签名：
@@ -151,13 +135,13 @@ async function executeSafeTransaction(params: {
     
     let getFeeDataPromise: Promise<any>;
     if (!feeDataResult) {
-        console.log('🔍 从 RPC 获取 Gas Price');
+        logger.debug('🔍 从 RPC 获取 Gas Price');
         getFeeDataPromise = getFeeData().then(data => {
             cache.set(gasPriceCacheKey, data, CACHE_TTL.GAS_PRICE);
             return data;
         });
     } else {
-        console.log('✅ 使用缓存的 Gas Price');
+        logger.debug('✅ 使用缓存的 Gas Price');
         getFeeDataPromise = Promise.resolve(feeDataResult);
     }
     
@@ -191,7 +175,7 @@ async function executeSafeTransaction(params: {
         maxPriorityFeePerGas: maxPriorityFeePerGas ? BigInt(maxPriorityFeePerGas) : undefined,
     });
     
-    console.log('✅ 交易已发送:', tx.hash);
+    logger.info('✅ 交易已发送', { txHash: tx.hash, nonce });
     
     // 交易发送成功后才保存到缓存（用于重发）
     await saveTxToCache(relayerWallet.address, nonce, {

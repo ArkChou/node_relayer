@@ -4,7 +4,7 @@ import { getTxFromCache, deleteTxFromCache, deleteConfirmedTxCache, incrementTxR
 import { getRelayerWallet } from "./provider.js";
 import { ethers } from "ethers";
 
-const MONITOR_INTERVAL = 10000; // 6秒检查一次
+const MONITOR_INTERVAL = 10000; // 10 秒检查一次
 const LEADER_LOCK_TTL = 15; // 主节点锁 15 秒过期
 const LEADER_LOCK_KEY = 'nonce_monitor_leader';
 
@@ -127,14 +127,17 @@ async function checkAndResendStuckTransaction(address: string): Promise<void> {
     return;
   }
 
-  // 检查 confirmed_nonce 是否卡住（6秒没变化）
-  if (lastConfirmedNonce !== null && lastConfirmedNonce === confirmedNonce) {
+  // 检查 confirmed_nonce 是否卡住（10秒没变化）
+  if (lastConfirmedNonce !== null && lastConfirmedNonce === confirmedNonce && pendingNonce > confirmedNonce) {
     console.log(`⚠️ 检测到交易卡住: confirmed=${confirmedNonce}, pending=${pendingNonce}`);
     
-    // confirmed_nonce 本身就是下一个应该发送的 nonce（getTransactionCount 返回的是下一个可用 nonce）
-    // 所以卡住的 nonce 就是 confirmedNonce，不是 confirmedNonce + 1
-    const stuckNonce = confirmedNonce;
-    await resendTransaction(address, stuckNonce);
+    // 重发所有卡住的 nonce（从 confirmed 到 pending-1）
+    const maxRetries = Math.min(pendingNonce - confirmedNonce, 10); // 最多一次处理 10 个
+    for (let i = 0; i < maxRetries; i++) {
+      const stuckNonce = confirmedNonce + i;
+      console.log(`🔄 尝试重发 nonce=${stuckNonce}`);
+      await resendTransaction(address, stuckNonce);
+    }
   }
 
   lastConfirmedNonce = confirmedNonce;

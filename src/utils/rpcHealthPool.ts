@@ -14,8 +14,8 @@ class RpcHealthPool {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   
   private readonly TIMEOUT_MS = 3000; // 3 秒超时
-  private readonly HEALTH_CHECK_INTERVAL_MS = 30000; // 30 秒检查一次
-  private readonly RECOVERY_CHECK_INTERVAL_MS = 60000; // 1 分钟尝试恢复一次
+  private readonly NORMAL_CHECK_INTERVAL_MS = 6000; // 全部健康时 6 秒检查一次
+  private readonly FAST_CHECK_INTERVAL_MS = 3000; // 有不健康 RPC 时 3 秒检查一次
 
   constructor(urls: string[]) {
     // 初始化所有 URL 为健康状态
@@ -151,14 +151,26 @@ class RpcHealthPool {
   }
 
   /**
-   * 启动定时健康检查
+   * 启动定时健康检查（动态间隔）
    */
   private startHealthCheck(): void {
-    this.healthCheckInterval = setInterval(async () => {
+    const runCheck = async () => {
       console.log('🔍 开始 RPC 健康检查...');
       await this.checkAllUrls();
-      console.log(`📊 健康: ${this.healthyUrls.length}, 不健康: ${this.unhealthyUrls.length}`);
-    }, this.HEALTH_CHECK_INTERVAL_MS);
+      
+      // 动态调整检查间隔
+      const nextInterval = this.unhealthyUrls.length > 0 
+        ? this.FAST_CHECK_INTERVAL_MS  // 有不健康 RPC，3 秒后再检查
+        : this.NORMAL_CHECK_INTERVAL_MS; // 全部健康，6 秒后检查
+      
+      const nextCheckSeconds = nextInterval / 1000;
+      console.log(`📊 健康: ${this.healthyUrls.length}, 不健康: ${this.unhealthyUrls.length} (${nextCheckSeconds}秒后再检查)`);
+      
+      this.healthCheckInterval = setTimeout(runCheck, nextInterval);
+    };
+    
+    // 立即执行第一次检查
+    runCheck();
   }
 
   /**
@@ -166,7 +178,7 @@ class RpcHealthPool {
    */
   stopHealthCheck(): void {
     if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
+      clearTimeout(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
   }

@@ -33,7 +33,8 @@ export async function saveTxToCache(
     originalMaxPriorityFeePerGas: tx.maxPriorityFeePerGas
   };
   
-  await redis.set(key, JSON.stringify(cachedTx));
+  // 设置 24 小时过期时间
+  await redis.set(key, JSON.stringify(cachedTx), 'EX', 24 * 60 * 60);
   console.log(`💾 交易已缓存: nonce=${nonce}, to=${tx.to}`);
 }
 

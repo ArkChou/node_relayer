@@ -1,6 +1,7 @@
 /**
  * 简单的内存缓存工具
  */
+import logger from './logger.js';
 
 interface CacheEntry<T> {
   data: T;
@@ -63,13 +64,18 @@ class MemoryCache {
   /**
    * 清理过期缓存（定期调用）
    */
-  cleanup(): void {
+  cleanup(): number {
     const now = Date.now();
+    let cleaned = 0;
+    
     for (const [key, entry] of this.cache.entries()) {
       if (now > entry.expiry) {
         this.cache.delete(key);
+        cleaned++;
       }
     }
+    
+    return cleaned;
   }
 }
 
@@ -78,8 +84,10 @@ export const cache = new MemoryCache();
 
 // 定期清理过期缓存（每 5 分钟）
 setInterval(() => {
-  cache.cleanup();
-  console.log(`🧹 清理过期缓存，当前缓存数量: ${cache.size()}`);
+  const cleaned = cache.cleanup();
+  if (cleaned > 0) {
+    logger.info(`🧹 清理过期缓存`, { cleaned, remaining: cache.size() });
+  }
 }, 5 * 60 * 1000);
 
 // 缓存 TTL 配置
