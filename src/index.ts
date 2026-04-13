@@ -255,35 +255,6 @@ app.post("/api/v1/deploy-safe", async (req, res, next) => {
   }
 });
 
-
-/**
- * 准备 Safe 交易（ERC20 转账、合约调用等）
- * 返回 safeTxHash 供前端签名
- */
-app.post("/api/v1/prepare-transaction", async (req, res, next) => {
-  try {
-    const { safeAddress, to, value, data } = req.body;
-    
-    // 参数验证
-    validateRequired(req.body, ['safeAddress', 'to']);
-    validateAddress(safeAddress, 'Safe 地址');
-    validateAddress(to, '目标地址');
-
-    logger.info("📝 准备 Safe 交易", { safeAddress, to });
-    const result = await configModule.prepareConfig({
-      safeAddress,
-      to,
-      value: value || "0",
-      data: data || "0x"
-    });
-    
-    return res.json(successResponse(result));
-
-  } catch (err: any) {
-    next(err);
-  }
-});
-
 /**
  * 准备 Safe 交易并收取 ERC20 gas 费
  * 返回 safeTxHash 供前端签名

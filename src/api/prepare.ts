@@ -1,56 +1,11 @@
 import { ethers } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 import dotenv from "dotenv";
-import { contractNetworks, tokenInfo, feeConfig, RPC_URLS } from "../config/config.js";
-import { getProvider, getRelayerWallet } from "../utils/provider.js";
+import { tokenInfo, feeConfig, RPC_URLS } from "../config/config.js";
+import { getProvider } from "../utils/provider.js";
 import { estimateGas } from "../utils/rpcWrapper.js";
 
 dotenv.config();
-
-async function prepareConfig(params:{
-        safeAddress: string;
-        to: string;           
-        value: string;       
-        data: string;        
-    }
-) {
-    const protocolKit = await (Safe as any).init({
-            provider: RPC_URLS[0],
-            signer: process.env.PRIVATE_KEY!,
-            safeAddress: params.safeAddress
-        });
-    
-    // 创建 Safe 交易
-    const safeTransaction = await protocolKit.createTransaction({
-        transactions: [{
-            to: params.to,
-            value: params.value,
-            data: params.data,
-            operation: 0  // 0 = Call, 1 = DelegateCall
-        }]
-    });
-    
-    // 计算交易哈希（供前端签名）
-    const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
-
-    // 返回给前端（将 BigInt 转换为字符串）
-    return {
-        safeTxHash,  // 前端用这个签名
-        safeTransaction: {
-            to: safeTransaction.data.to,
-            value: safeTransaction.data.value.toString(),
-            data: safeTransaction.data.data,
-            operation: safeTransaction.data.operation,
-            safeTxGas: safeTransaction.data.safeTxGas.toString(),
-            baseGas: safeTransaction.data.baseGas.toString(),
-            gasPrice: safeTransaction.data.gasPrice.toString(),
-            gasToken: safeTransaction.data.gasToken,
-            refundReceiver: safeTransaction.data.refundReceiver,
-            nonce: safeTransaction.data.nonce.toString()
-        }
-    };
-}
-
 
 // 准备交易并收取 ERC20 gas 费
 async function prepareConfigWithFee(params: {
@@ -126,7 +81,6 @@ async function prepareConfigWithFee(params: {
     };
 }
 const configModule = {
-    prepareConfig,
     prepareConfigWithFee
 };
 

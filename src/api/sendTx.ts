@@ -48,6 +48,17 @@ async function executeSafeTransaction(params: {
         throw new NotOwnerError(params.userAddress, owners);
     }
 
+    // 记录前端传来的参数
+    logger.info('📥 前端传来的交易参数', {
+        to: params.safeTransaction.to,
+        value: params.safeTransaction.value,
+        nonce: params.safeTransaction.nonce,
+        gasToken: params.safeTransaction.gasToken,
+        safeTxGas: params.safeTransaction.safeTxGas,
+        baseGas: params.safeTransaction.baseGas,
+        gasPrice: params.safeTransaction.gasPrice
+    });
+    
     // 重建 SafeTransaction 对象（使用前端传来的完整数据，包括 gas 费参数）
     const safeTransaction = await protocolKit.createTransaction({
         transactions: [{
@@ -57,30 +68,56 @@ async function executeSafeTransaction(params: {
             operation: params.safeTransaction.operation
         }]
     });
+    
+    logger.info('🔧 createTransaction 后的默认 nonce', { 
+        defaultNonce: safeTransaction.data.nonce 
+    });
 
-    // 如果有 gas 费参数，必须设置（否则 safeTxHash 会不匹配）
-    if (params.safeTransaction.gasToken && params.safeTransaction.gasToken !== ethers.ZeroAddress) {
+    // 如果前端传了 gas 费参数，必须设置（否则 safeTxHash 会不匹配）
+    // 即使 gasToken 是 ZeroAddress，也要设置（因为前端签名时包含了这些参数）
+    if (params.safeTransaction.gasToken !== undefined) {
         safeTransaction.data.safeTxGas = params.safeTransaction.safeTxGas;
         safeTransaction.data.baseGas = params.safeTransaction.baseGas;
         safeTransaction.data.gasPrice = params.safeTransaction.gasPrice;
         safeTransaction.data.gasToken = params.safeTransaction.gasToken;
-        safeTransaction.data.refundReceiver = params.safeTransaction.refundReceiver;
+        safeTransaction.data.refundReceiver = params.safeTransaction.refundReceiver || ethers.ZeroAddress;
     }
     
     // 确保 nonce 一致
     safeTransaction.data.nonce = params.safeTransaction.nonce;
+    
+    logger.info('✅ 设置后的 nonce', { 
+        finalNonce: safeTransaction.data.nonce 
+    });
 
     // 验证交易哈希
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
     
     // 调试日志
-    logger.debug('🔍 后端交易参数', {
-        safeAddress: params.safeAddress,
-        to: params.safeTransaction.to,
-        value: params.safeTransaction.value,
-        nonce: params.safeTransaction.nonce,
-        safeTxHashMatch: params.safeTxHash === safeTxHash
+    logger.info('🔍 safeTxHash 对比', {
+        frontend: params.safeTxHash,
+        backend: safeTxHash,
+        match: params.safeTxHash === safeTxHash
     });
+    
+    if (params.safeTxHash && params.safeTxHash !== safeTxHash) {
+        logger.error('❌ safeTxHash 不匹配！', {
+            frontend: params.safeTxHash,
+            backend: safeTxHash,
+            safeTransaction: {
+                to: params.safeTransaction.to,
+                value: params.safeTransaction.value,
+                data: params.safeTransaction.data,
+                operation: params.safeTransaction.operation,
+                safeTxGas: params.safeTransaction.safeTxGas,
+                baseGas: params.safeTransaction.baseGas,
+                gasPrice: params.safeTransaction.gasPrice,
+                gasToken: params.safeTransaction.gasToken,
+                refundReceiver: params.safeTransaction.refundReceiver,
+                nonce: params.safeTransaction.nonce
+            }
+        });
+    }
     
     // 解析签名
     const r = params.signature.slice(0, 66);
@@ -109,6 +146,19 @@ async function executeSafeTransaction(params: {
         'function execTransaction(address to, uint256 value, bytes calldata data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address payable refundReceiver, bytes memory signatures) external payable returns (bool success)'
     ]);
     
+    logger.info('📝 编码交易参数', {
+        to: params.safeTransaction.to,
+        value: params.safeTransaction.value,
+        operation: params.safeTransaction.operation,
+        safeTxGas: params.safeTransaction.safeTxGas,
+        baseGas: params.safeTransaction.baseGas,
+        gasPrice: params.safeTransaction.gasPrice,
+        gasToken: params.safeTransaction.gasToken,
+        refundReceiver: params.safeTransaction.refundReceiver,
+        signatureLength: originalSignature.length,
+        signature: originalSignature
+    });
+    
     const encodedTx = safeInterface.encodeFunctionData('execTransaction', [
         params.safeTransaction.to,
         params.safeTransaction.value,
@@ -121,6 +171,11 @@ async function executeSafeTransaction(params: {
         params.safeTransaction.refundReceiver,
         originalSignature  // 直接传递原始签名
     ]);
+    
+    logger.info('📦 编码后的交易 data', {
+        encodedTxLength: encodedTx.length,
+        encodedTx: encodedTx.substring(0, 200) + '...'
+    });
     
     // 先并行获取 Gas 估算和 Gas Price（可能失败，不消耗 nonce）
     // Gas Price 使用缓存
@@ -164,8 +219,8 @@ async function executeSafeTransaction(params: {
         ? Math.floor(Number(feeDataResult.maxPriorityFeePerGas) * 1.2).toString()
         : undefined;
     
-    // 发送交易（使用 rpcWrapper 的 sendTransaction，带超时和自动切换）
-    const tx = await sendTransaction(relayerWallet, {
+    // 构建交易对象
+    const txData = {
         to: params.safeAddress,
         value: "0",
         data: encodedTx,
@@ -173,24 +228,47 @@ async function executeSafeTransaction(params: {
         gasLimit: gasLimit,
         maxFeePerGas: maxFeePerGas ? BigInt(maxFeePerGas) : undefined,
         maxPriorityFeePerGas: maxPriorityFeePerGas ? BigInt(maxPriorityFeePerGas) : undefined,
+    };
+    
+    // 预先计算 txHash（Gas 估算成功，说明交易能通过）
+    const unsignedTx = await relayerWallet.populateTransaction(txData);
+    const signedTx = await relayerWallet.signTransaction(unsignedTx);
+    const predictedTxHash = ethers.keccak256(signedTx);
+    
+    logger.info('📝 预计算 txHash（Gas 估算已通过）', { txHash: predictedTxHash, nonce });
+    
+    // 异步发送交易（不阻塞返回）
+    sendTransaction(relayerWallet, txData).then(async (tx) => {
+        logger.info('✅ 交易已发送', { txHash: tx.hash, nonce, predicted: predictedTxHash });
+        
+        // 验证 txHash 是否一致
+        if (tx.hash !== predictedTxHash) {
+            logger.warn('⚠️ txHash 不一致', { predicted: predictedTxHash, actual: tx.hash });
+        }
+        
+        // 交易发送成功后保存到缓存（用于重发）
+        await saveTxToCache(relayerWallet.address, nonce, {
+            nonce: nonce,
+            to: params.safeAddress,
+            value: "0",
+            data: encodedTx,
+            gasLimit: gasLimit.toString(),
+            maxFeePerGas: maxFeePerGas || "0",
+            maxPriorityFeePerGas: maxPriorityFeePerGas || "0"
+        });
+    }).catch((error) => {
+        logger.error('❌ 交易发送失败（但 Gas 估算已通过）', { 
+            error: error.message, 
+            nonce, 
+            txHash: predictedTxHash 
+        });
     });
     
-    logger.info('✅ 交易已发送', { txHash: tx.hash, nonce });
-    
-    // 交易发送成功后才保存到缓存（用于重发）
-    await saveTxToCache(relayerWallet.address, nonce, {
-        nonce: nonce,
-        to: params.safeAddress,
-        value: "0",
-        data: encodedTx,
-        gasLimit: gasLimit.toString(),
-        maxFeePerGas: maxFeePerGas || "0",
-        maxPriorityFeePerGas: maxPriorityFeePerGas || "0"
-    });
-    
+    // 立即返回预计算的 txHash（Gas 估算成功 = 交易能通过）
     return {
-        txHash: tx.hash,
-        status: 'pending'
+        txHash: predictedTxHash,
+        status: 'submitted',
+        nonce: nonce
     };
 }
 
