@@ -146,19 +146,6 @@ async function executeSafeTransaction(params: {
         'function execTransaction(address to, uint256 value, bytes calldata data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address payable refundReceiver, bytes memory signatures) external payable returns (bool success)'
     ]);
     
-    logger.info('📝 编码交易参数', {
-        to: params.safeTransaction.to,
-        value: params.safeTransaction.value,
-        operation: params.safeTransaction.operation,
-        safeTxGas: params.safeTransaction.safeTxGas,
-        baseGas: params.safeTransaction.baseGas,
-        gasPrice: params.safeTransaction.gasPrice,
-        gasToken: params.safeTransaction.gasToken,
-        refundReceiver: params.safeTransaction.refundReceiver,
-        signatureLength: originalSignature.length,
-        signature: originalSignature
-    });
-    
     const encodedTx = safeInterface.encodeFunctionData('execTransaction', [
         params.safeTransaction.to,
         params.safeTransaction.value,
@@ -171,12 +158,6 @@ async function executeSafeTransaction(params: {
         params.safeTransaction.refundReceiver,
         originalSignature  // 直接传递原始签名
     ]);
-    
-    logger.info('📦 编码后的交易 data', {
-        encodedTxLength: encodedTx.length,
-        encodedTx: encodedTx.substring(0, 200) + '...'
-    });
-    
     // 先并行获取 Gas 估算和 Gas Price（可能失败，不消耗 nonce）
     // Gas Price 使用缓存
     const gasPriceCacheKey = 'gas_price';
