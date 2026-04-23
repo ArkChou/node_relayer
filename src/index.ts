@@ -5,7 +5,7 @@ import configModule from "./api/prepare.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import { initRpcHealthPool } from "./utils/rpcHealthPool.js";
-import { RPC_URLS, tokenInfo } from "./config/config.js";
+import { RPC_URLS, tokenInfo, contractAddresses } from "./config/config.js";
 import { startNonceMonitor } from "./utils/nonceMonitor.js";
 import { txQueue } from "./queue/txQueue.js";
 import "./queue/worker.js";
@@ -19,6 +19,9 @@ import { validateEnv } from "./utils/envValidator.js";
 import { getRpcHealthPool } from "./utils/rpcHealthPool.js";
 import { getTransactionCount } from "./utils/rpcWrapper.js";
 import { getRedisCluster } from "./utils/nonce.js";
+import { ethers } from "ethers";
+import { MARKET_ABI } from "./abi/MARKET_ABI.js";
+import { getProvider } from "./utils/provider.js";
 
 dotenv.config();
 
@@ -27,6 +30,15 @@ validateEnv();
 
 // 初始化 RPC 健康池
 initRpcHealthPool(RPC_URLS);
+
+// 辅助函数：动态获取 Market 合约实例（避免 RPC 断连问题）
+function getMarketContract() {
+  return new ethers.Contract(
+    contractAddresses.MARKET,
+    MARKET_ABI,
+    getProvider()  // 每次都获取最新的健康 provider
+  );
+}
 
 // 启动时强制同步 nonce
 (async () => {
@@ -355,6 +367,49 @@ app.get("/api/v1/transaction/:jobId", async (req, res, next) => {
       finishedOn: job.finishedOn
     }));
   } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * 查询订单信息
+ */
+app.get("/api/v1/getOrders", async (req, res, next) => {
+  try {
+    const { orderHash } = req.query;
+    
+    // 参数验证
+    if (!orderHash || typeof orderHash !== 'string') {
+      return res.status(400).json(
+        errorResponse('INVALID_PARAMETER', '缺少 orderHash 参数')
+      );
+    }
+
+    // 查询订单（动态获取合约实例，确保使用健康的 RPC）
+    const marketContract = getMarketContract();
+    const order = await marketContract.orders(orderHash);
+
+    // 检查订单是否存在（buyer 为零地址表示不存在）
+    if (order.buyer === ethers.ZeroAddress) {
+      return res.status(404).json(
+        errorResponse('ORDER_NOT_FOUND', '订单不存在', { orderHash })
+      );
+    }
+
+    // 格式化返回数据
+    const orderData = {
+      orderHash,
+      postId: order.postId,
+      buyer: order.buyer,
+      seller: order.seller,
+      createdAt: Number(order.createdAt),
+      quantity: Number(order.quantity),
+      unitPrice: order.unitPrice.toString(),
+      redeemed: order.redeemed
+    };
+
+    return res.json(successResponse(orderData));
+  } catch (error) {
     next(error);
   }
 });

@@ -13,9 +13,9 @@ class RpcHealthPool {
   private urlStats: Map<string, UrlStats> = new Map();
   private healthCheckInterval: NodeJS.Timeout | null = null;
   
-  private readonly TIMEOUT_MS = 3000; // 3 秒超时
-  private readonly NORMAL_CHECK_INTERVAL_MS = 6000; // 全部健康时 6 秒检查一次
-  private readonly FAST_CHECK_INTERVAL_MS = 3000; // 有不健康 RPC 时 3 秒检查一次
+  private readonly TIMEOUT_MS = 5000; // 5 秒超时（避免网络波动导致误判）
+  private readonly NORMAL_CHECK_INTERVAL_MS = 10000; // 全部健康时 10 秒检查一次
+  private readonly FAST_CHECK_INTERVAL_MS = 5000; // 有不健康 RPC 时 5 秒检查一次
 
   constructor(urls: string[]) {
     // 初始化所有 URL 为健康状态

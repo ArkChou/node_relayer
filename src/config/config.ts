@@ -12,6 +12,10 @@ export const contractNetworks = {
         CHAIN_ID: 84532
     }
 
+    export const contractAddresses = {
+        MARKET: "0xEE0435980BA5F2877E887F8a24d029dA9D257E8e"  // Market 合约地址
+    };
+
     export const feeConfig = {
         DEFAULT_FEE: "0.1",  // token
         GAS_BUFFER: 1.5,     // 150%
